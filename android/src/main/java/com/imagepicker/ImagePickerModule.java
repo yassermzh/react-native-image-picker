@@ -48,6 +48,8 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   static final int REQUEST_LAUNCH_IMAGE_LIBRARY = 2;
   static final int REQUEST_LAUNCH_VIDEO_LIBRARY = 3;
   static final int REQUEST_LAUNCH_VIDEO_CAPTURE = 4;
+  static final int REQUEST_LAUNCH_FILE_MANAGER = 5;
+
 
   private final ReactApplicationContext mReactContext;
 
@@ -111,6 +113,13 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
       titles.add(options.getString("chooseFromLibraryButtonTitle"));
       actions.add("library");
     }
+    if (options.hasKey("chooseFileButtonTitle")
+            && options.getString("chooseFileButtonTitle") != null
+            && !options.getString("chooseFileButtonTitle").isEmpty()) {
+      titles.add(options.getString("chooseFileButtonTitle"));
+      actions.add("fileManager");
+    }
+
     if (options.hasKey("cancelButtonTitle")
             && !options.getString("cancelButtonTitle").isEmpty()) {
       cancelButtonTitle = options.getString("cancelButtonTitle");
@@ -151,6 +160,9 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
           case "library":
             launchImageLibrary(options, callback);
             break;
+          case "fileManager":
+            launchFileManager(options, callback);
+            break;
           case "cancel":
             response.putBoolean("didCancel", true);
             callback.invoke(response);
@@ -178,6 +190,38 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     });
     dialog.show();
   }
+
+
+  @ReactMethod
+  public void launchFileManager(final ReadableMap options, final Callback callback) {
+
+    Activity currentActivity = getCurrentActivity();
+
+    if (currentActivity == null) {
+      response = Arguments.createMap();
+      response.putString("error", "can't find current Activity");
+      callback.invoke(response);
+      return;
+    }
+
+    int requestCode = REQUEST_LAUNCH_FILE_MANAGER;
+    Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+    intent.setType("file/*");
+
+    mCallback = callback;
+
+    try {
+      currentActivity.startActivityForResult(
+              Intent.createChooser(intent, "Select file to upload"),
+              requestCode);
+    } catch (ActivityNotFoundException e) {
+      e.printStackTrace();
+      response = Arguments.createMap();
+      response.putString("error", "Cannot launch file manager");
+      callback.invoke(response);
+    }
+  }
+
 
   // NOTE: Currently not reentrant / doesn't support concurrent requests
   @ReactMethod
@@ -265,7 +309,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     } else {
       requestCode = REQUEST_LAUNCH_IMAGE_LIBRARY;
       libraryIntent = new Intent(Intent.ACTION_PICK,
-        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+              android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
 
       mCropImagedUri = null;
       if (allowEditing == true) {
@@ -289,7 +333,9 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     mCallback = callback;
 
     try {
-      currentActivity.startActivityForResult(libraryIntent, requestCode);
+      currentActivity.startActivityForResult(
+              Intent.createChooser(libraryIntent, "Select file to upload"),
+              requestCode);
     } catch (ActivityNotFoundException e) {
       e.printStackTrace();
       response = Arguments.createMap();
@@ -301,9 +347,13 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   @Override
   public void onActivityResult(final int requestCode, final int resultCode, final Intent data) {
     //robustness code
-    if (mCallback == null || (mCameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE)
-            || (requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE && requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY
-            && requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY && requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE)) {
+    if (mCallback == null ||
+            (mCameraCaptureURI == null && requestCode == REQUEST_LAUNCH_IMAGE_CAPTURE) ||
+            (requestCode != REQUEST_LAUNCH_IMAGE_CAPTURE &&
+                    requestCode != REQUEST_LAUNCH_IMAGE_LIBRARY &&
+              requestCode != REQUEST_LAUNCH_FILE_MANAGER &&
+            requestCode != REQUEST_LAUNCH_VIDEO_LIBRARY &&
+                    requestCode != REQUEST_LAUNCH_VIDEO_CAPTURE)) {
       return;
     }
 
@@ -336,12 +386,17 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
         break;
       case REQUEST_LAUNCH_VIDEO_LIBRARY:
         response.putString("uri", data.getData().toString());
-        response.putString("path", getRealPathFromURI(data.getData()));
         mCallback.invoke(response);
         return;
       case REQUEST_LAUNCH_VIDEO_CAPTURE:
         response.putString("uri", data.getData().toString());
-        response.putString("path", getRealPathFromURI(data.getData()));
+        mCallback.invoke(response);
+        return;
+      case REQUEST_LAUNCH_FILE_MANAGER:
+        //response.putString("uri", data.getData().toString());
+        uri = data.getData();
+        String realPath = getRealPathFromURI(uri);
+        response.putString("path", realPath);
         mCallback.invoke(response);
         return;
       default:
@@ -439,8 +494,7 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
   }
 
   private boolean isCameraAvailable() {
-    return mReactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA)
-      || mReactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY);
+    return mReactContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY);
   }
 
   private String getRealPathFromURI(Uri uri) {
